@@ -80,13 +80,70 @@ struct Diff_EV_config
     Diff_EV_config(unsigned int NP, double CR, double w, unsigned int max_gen, double tol)
         : population_size(NP) , crossover_prob(CR) , weight(w) 
         , n_gen(max_gen) , tolerance(tol)
-        {}
+    {}
 
     Diff_EV_config()    // Wikipedia suggested parameters for empty constructor
         : population_size(50) , crossover_prob(0.9) , weight(0.8)
         , n_gen(100) , tolerance(EPSILON)
-        {}
+    {}
 };
+
+// ------------------------------------------------------------------------------------ //
+/* Namespace for Compuitational routines */
+namespace Routines
+{
+    KOKKOS_INLINE_FUNCTION double std_normal_cdf(double x)  {return 0.5 * (1 + Kokkos::erf(x * 0.70710678118654752));}
+    KOKKOS_INLINE_FUNCTION double std_normal_dist(double x) {return 0.39894228040143268 * Kokkos::exp(-0.5*square(x));}
+    KOKKOS_INLINE_FUNCTION double black_scholes_call(double S, double K, double r, double sigma, double tau);
+    KOKKOS_INLINE_FUNCTION double vega(double S, double K, double r, double sigma, double tau);
+    KOKKOS_INLINE_FUNCTION double implied_volatility(double S, double K, double r, double tau, unsigned int max_iter, double epsilon);
+};
+
+/***
+    Single Black-Scholes call price
+***/
+KOKKOS_INLINE_FUNCTION double Routines::black_scholes_call(double S, double K, double r, double sigma, double tau) 
+{
+    double d_plus = (Kokkos::log(S/K) + tau*(r + 0.5*square(sigma))) / (sigma * Kokkos::sqrt(tau));
+    double d_minus = d_plus - sigma*Kokkos::sqrt(tau);
+    return S*std_normal_cdf(d_plus) - std_normal_cdf(d_minus)*(K*Kokkos::exp(-r*tau));
+}
+
+/***
+    Single vega compuation (Black-Scholes sigma sensitivity)
+***/
+KOKKOS_INLINE_FUNCTION double Routines::vega(double S, double K, double r, double sigma, double tau) 
+{
+    double d_plus = (Kokkos::log(S/K) + tau*(r + 0.5*square(sigma))) / (sigma * Kokkos::sqrt(tau));
+    return S*std_normal_dist(d_plus)*Kokkos::sqrt(tau);
+}
+
+/*** 
+    Single implied volatility computation (basic B-S differerence minimization routines)
+***/
+KOKKOS_INLINE_FUNCTION double Routines::implied_volatility(double S, double K, double r, double tau, 
+                                            unsigned int max_iter=20, double epsilon=EPSILON)
+{
+    double vol = 0.2;
+    double price_diff = HUGE;
+
+    for (unsigned int iter = 0; iter < max_iter; iter++) {
+        
+        // Compute the difference between current computed implied vol vs market price 
+        price_diff = black_scholes_call(S, K, r, vol, tau) - S;
+        if (Kokkos::abs(price_diff) < epsilon) {break;}
+
+        // Vega computation
+        double _vega = vega(S, K, r, vol, tau);
+        if (_vega < EPSILON) {_vega = EPSILON;}
+
+        // Newton update to the volatility
+        vol -= price_diff / _vega;
+    }
+
+    return vol;
+}
+
 
 // ------------------------------------------------------------------------------------ //
 /* FFT solver object */
@@ -98,21 +155,19 @@ class Heston_FFT
 
     private:
         /* Data fields */
+        double S;                   // Spot price
+        double r;                   // Risk-free rate
+        Kokkos::View<double*> K;    // Strikes 
+        Kokkos::View<double*> T;    // Maturities
+        HestonParameters params;    // Parameters
+        FFT_config fft_config;      // FFT config
+
 
         /* FFT pricing helpers */
-        KOKKOS_INLINE_FUNCTION Complex heston_characteristic(Complex u, HestonParameters p);
+        KOKKOS_INLINE_FUNCTION Complex heston_characteristic(Complex u) const;
         KOKKOS_INLINE_FUNCTION Complex damped_call(Complex v);
-
-        /* Black-Scholes formula related stuff for implied volatility */
-        KOKKOS_INLINE_FUNCTION double std_normal_cdf(double x)    {return 0.5 * (1 + Kokkos::erf(x * 0.70710678118654752));}
-        KOKKOS_INLINE_FUNCTION double std_normal_dist(double x)   {return 0.39894228040143268 * Kokkos::exp(-0.5*square(x));}
-        KOKKOS_INLINE_FUNCTION double _black_scholes(double S, double K, double sigma, double tau);
-        KOKKOS_INLINE_FUNCTION double _vega(double S, double K, double sigma, double tau);
+        KOKKOS_INLINE_FUNCTION double heston_single_call();
 };
-
-
-
-
 
 // ------------------------------------------------------------------------------------ //
 /* main() */
