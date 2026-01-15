@@ -151,20 +151,23 @@ class Heston_FFT
 {
     public:
         /* Constructors */
+        Heston_FFT(double S, double r, Kokkos::View<double*> K, Kokkos::View<double*> T, HestonParameters(P))
+            : S(S) , r(r), strikes(K) , maturities(T) , params(P), fft_config(FFT_config())
+        {}
 
 
     private:
         /* Data fields */
-        double S;                   // Spot price
-        double r;                   // Risk-free rate
-        Kokkos::View<double*> K;    // Strikes 
-        Kokkos::View<double*> T;    // Maturities
-        HestonParameters params;    // Parameters
-        FFT_config fft_config;      // FFT config
+        double S;                           // Spot price
+        double r;                           // Risk-free rate
+        Kokkos::View<double*> strikes;      // Strikes 
+        Kokkos::View<double*> maturities;   // Contract maturities
+        HestonParameters params;            // Parameters
+        FFT_config fft_config;              // FFT config
 
 
         /* FFT pricing helpers */
-        KOKKOS_INLINE_FUNCTION Complex heston_characteristic(Complex u) const;
+        KOKKOS_INLINE_FUNCTION Complex heston_characteristic(Complex u, double K, double t) const;
         KOKKOS_INLINE_FUNCTION Complex damped_call(Complex v);
         KOKKOS_INLINE_FUNCTION double heston_single_call();
 };
