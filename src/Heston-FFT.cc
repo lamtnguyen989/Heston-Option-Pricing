@@ -205,14 +205,17 @@ class Heston_FFT
 
 
         /* FFT pricing helpers */
-        KOKKOS_INLINE_FUNCTION Complex heston_characteristic(Complex u, double t) const;
-        KOKKOS_INLINE_FUNCTION Complex damped_call(Complex v, double t) const;
+        KOKKOS_INLINE_FUNCTION Complex heston_characteristic(Complex u, double t, HestonParameters params) const;
+        KOKKOS_INLINE_FUNCTION Complex heston_characteristic(Complex u, double t) const {return heston_characteristic(u,t,params);};
+        KOKKOS_INLINE_FUNCTION Complex damped_call(Complex v, double t, HestonParameters params) const;
+        KOKKOS_INLINE_FUNCTION Complex damped_call(Complex v, double t) const {return damped_call(v,t,params);};
 };
 
 /***
     Heston Characteristic functions 
 ***/
-KOKKOS_INLINE_FUNCTION Complex Heston_FFT::heston_characteristic(Complex u, double t) const
+
+KOKKOS_INLINE_FUNCTION Complex Heston_FFT::heston_characteristic(Complex u, double t, HestonParameters params) const
 {
     // A bunch of repeated constants in the calculation
     Complex xi = params.kappa - i*params.rho*params.sigma*u;
@@ -241,10 +244,10 @@ KOKKOS_INLINE_FUNCTION Complex Heston_FFT::heston_characteristic(Complex u, doub
 /*** 
     Damped call price function 
 ***/
-KOKKOS_INLINE_FUNCTION Complex Heston_FFT::damped_call(Complex v, double t) const
+KOKKOS_INLINE_FUNCTION Complex Heston_FFT::damped_call(Complex v, double t, HestonParameters params) const
 {
     double alpha = fft_config.alpha;
-    Complex phi = heston_characteristic((v - i*(alpha + 1.0)), t);
+    Complex phi = heston_characteristic((v - i*(alpha + 1.0)), t, params);
     return (Kokkos::exp(-r*t) * phi) / (square(alpha) + alpha - v*v +i*(2.0*alpha + 1.0)*v);
 }
 
@@ -320,18 +323,61 @@ Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool v
     // Initialize variables and surface
     unsigned int n_strikes = strikes.extent(0);
     unsigned int n_maturities = maturities.extent(0);
+    unsigned int n_grid_points = fft_config.N;
+    double alpha = fft_config.alpha;
     Kokkos::View<double**> pricing_surface("iv_surface", n_strikes, n_maturities);
-    Kokkos::MDRangePolicy<Kokkos::Rank<2>> surface_policy({0,0}, {n_strikes, n_maturities});
+    
 
     // FFT setup
     double eta = 0.2;   // Step-size in damped Fourier space
     double lambda = (2.0*PI) / (fft_config.N*eta); // Transformed step size in log-price space
     double bound = 0.5*fft_config.N*lambda;
 
+    // Note: Default GPU layout is LEFT or row-major
+    Kokkos::MDRangePolicy<Kokkos::Rank<2>> fft_policy({0,0}, {fft_config.N, n_maturities});
+    Kokkos::View<Complex**> x("Fourier_input", n_grid_points, n_maturities);
 
+    Kokkos::parallel_for("Fourier_input_calculations" , fft_policy, 
+        KOKKOS_CLASS_LAMBDA(unsigned int k, unsigned int t) {
+            
+            // Compute damped call price
+            double v_k = eta*k;
+            Complex damped = this->damped_call(Complex(v_k, 0.0), maturities(t));
 
+            // Compute the Simpson quadrature weights
+            double w_k;
+            if (k == 0 || k == n_grid_points-1) { w_k = 1.0/3.0;}
+            else if (k % 2 == 1)                { w_k = 4.0/3.0;}
+            else                                { w_k = 2.0/3.0;}
 
-    // TODO
+            // Modify the damped call price to get the input
+            x(k, t) = Kokkos::exp(-i*bound*v_k) * damped * eta * w_k; 
+        });
+    
+    // FFT
+    Kokkos::View<Complex**> x_hat("x_hat", n_grid_points, n_maturities);
+    KokkosFFT::fft(exec_space(), x, x_hat);
+
+    // Undamp to get option call price
+    Kokkos::MDRangePolicy<Kokkos::Rank<2>> price_policy({0,0}, {n_strikes, n_maturities});
+    Kokkos::parallel_for("extract_prices", price_policy,
+        KOKKOS_CLASS_LAMBDA(unsigned int k, unsigned int t) {
+
+            // Find the Fourier grid price index
+            double log_K = Kokkos::log(strikes(k));
+            int index = static_cast<int>((log_K + bound) / lambda + 0.5);
+
+            // Undamp to get the price at this index
+            if ((index < n_grid_points) && (index >= 0))
+                pricing_surface(k, t) = x_hat(index, t).real()*Kokkos::exp(-alpha*(lambda*index - bound)) / PI;
+            else
+                pricing_surface(k, t) = 0.0;
+        });
+    
+    if (verbose) {
+        // TODO
+    }
+
     return pricing_surface;
 }
 
