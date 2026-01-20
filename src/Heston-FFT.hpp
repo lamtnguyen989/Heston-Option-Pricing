@@ -100,7 +100,7 @@ class Heston_FFT
 
         /* Calibrating parameters */
         double iv_surface_sq_loss(HestonParameters P);
-        HestonParameters diff_EV_iv_calibration(Kokkos::View<double**>& iv_surface, 
+        HestonParameters diff_EV_iv_calibration(Kokkos::View<double*> strikes, Kokkos::View<double*> maturities,
                                             ParameterBounds bounds, Diff_EV_config config, unsigned int seed);
 
 
@@ -289,22 +289,4 @@ Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool v
     }
 
     return pricing_surface;
-}
-
-
-
-// ------------------------------------------------------------------------------------ //
-/* main() */
-// ------------------------------------------------------------------------------------ //
-int main (int argc, char* argv[])
-{
-    // Setting up OpenMP backend for the cases when run on host only
-    setenv("OMP_PROC_BIND", "spread", 1);
-    setenv("OMP_PLACES", "threads", 1);
-
-    Kokkos::initialize(argc, argv);
-    {
-
-    }
-    Kokkos::finalize();
 }

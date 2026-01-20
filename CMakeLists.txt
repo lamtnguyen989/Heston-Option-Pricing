@@ -9,7 +9,7 @@ add_subdirectory(tpls/kokkos-fft)
 
 # Sources
 set(SRC_DIR "src")
-set(SRC_FILE ${SRC_DIR}/Heston-FFT.cc)
+set(SRC_FILE ${SRC_DIR}/main.cc)
 
 # Executables
 add_executable(hestonFFT ${SRC_FILE})
