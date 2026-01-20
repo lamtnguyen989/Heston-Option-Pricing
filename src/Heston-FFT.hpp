@@ -1,19 +1,6 @@
-#include <Kokkos_Core.hpp>
-#include <Kokkos_Complex.hpp>
-#include <Kokkos_Random.hpp>
-#include <KokkosFFT.hpp>
+#include "headers.hpp"
+#include "routines.hpp"
 
-/* Macros */
-using Complex = Kokkos::complex<double>;
-using exec_space = Kokkos::DefaultExecutionSpace;
-#define i Complex(0.0, 1.0) // Can't use `using` to device code conflict
-#define PI 3.141592653589793
-#define EPSILON 5e-15
-#define HUGE 1e6
-#define square(x) (x*x)
-
-
-// ------------------------------------------------------------------------------------ //
 /* Heston model parameters */
 struct HestonParameters
 {
@@ -87,85 +74,6 @@ struct Diff_EV_config
     {}
 };
 
-// ------------------------------------------------------------------------------------ //
-/* Compuitational routines */
-namespace Routines
-{
-    KOKKOS_INLINE_FUNCTION double std_normal_cdf(double x)  {return 0.5 * (1 + Kokkos::erf(x * 0.70710678118654752));}
-    KOKKOS_INLINE_FUNCTION double std_normal_dist(double x) {return 0.39894228040143268 * Kokkos::exp(-0.5*square(x));}
-    KOKKOS_INLINE_FUNCTION double black_scholes_call(double S, double K, double r, double sigma, double tau);
-    KOKKOS_INLINE_FUNCTION double vega(double S, double K, double r, double sigma, double tau);
-    KOKKOS_INLINE_FUNCTION double implied_volatility(double call_price, double S, double K, double r, double tau, unsigned int max_iter, double epsilon);
-    Kokkos::View<double**> implied_volatility_surface(double call_price, double S, Kokkos::View<double*> K, double r, Kokkos::View<double*> T);
-};
-
-/***
-    Single Black-Scholes call price
-***/
-KOKKOS_INLINE_FUNCTION double Routines::black_scholes_call(double S, double K, double r, double sigma, double tau) 
-{
-    double d_plus = (Kokkos::log(S/K) + tau*(r + 0.5*square(sigma))) / (sigma * Kokkos::sqrt(tau));
-    double d_minus = d_plus - sigma*Kokkos::sqrt(tau);
-    return S*std_normal_cdf(d_plus) - std_normal_cdf(d_minus)*(K*Kokkos::exp(-r*tau));
-}
-
-/***
-    Single vega compuation (Black-Scholes sigma sensitivity)
-***/
-KOKKOS_INLINE_FUNCTION double Routines::vega(double S, double K, double r, double sigma, double tau) 
-{
-    double d_plus = (Kokkos::log(S/K) + tau*(r + 0.5*square(sigma))) / (sigma * Kokkos::sqrt(tau));
-    return S*std_normal_dist(d_plus)*Kokkos::sqrt(tau);
-}
-
-/*** 
-    Single implied volatility computation (basic B-S differerence minimization routines)
-***/
-KOKKOS_INLINE_FUNCTION double Routines::implied_volatility(double call_price, double S, double K, double r, double tau, 
-                                            unsigned int max_iter=20, double epsilon=EPSILON)
-{
-    double vol = 0.2;
-    double price_diff = HUGE;
-
-    for (unsigned int iter = 0; iter < max_iter; iter++) {
-        
-        // Compute the difference between current computed implied vol vs market price 
-        price_diff = black_scholes_call(S, K, r, vol, tau) - call_price;
-        if (Kokkos::abs(price_diff) < epsilon) {break;}
-
-        // Vega computation
-        double _vega = vega(S, K, r, vol, tau);
-        if (_vega < EPSILON) {_vega = EPSILON;}
-
-        // Newton update to the volatility
-        vol -= price_diff / _vega;
-        vol = Kokkos::max(vol, EPSILON);
-    }
-
-    return vol;
-}
-
-/*** 
-    Implied volatility surface routines
-***/
-Kokkos::View<double**> Routines::implied_volatility_surface(double call_price, double S, Kokkos::View<double*> K, double r, Kokkos::View<double*> T)
-{
-    // Initialize variables and surface
-    unsigned int n_strikes = K.extent(0);
-    unsigned int n_maturities = T.extent(0);
-    Kokkos::View<double**> iv_surface("iv_surface", n_strikes, n_maturities);
-
-    // Compute the implied_volatility at every point on the surface
-    Kokkos::MDRangePolicy<Kokkos::Rank<2>> policy({0,0}, {n_strikes, n_maturities});
-    Kokkos::parallel_for("iv_surface_computation", policy,
-        KOKKOS_LAMBDA(unsigned int k, unsigned int t) {
-            iv_surface(k,t) = Routines::implied_volatility(call_price, S, K(k), r, T(t));
-        });
-
-    // Return result
-    return iv_surface;
-}
-
 
 // ------------------------------------------------------------------------------------ //
 /* FFT solver object */
@@ -191,7 +99,9 @@ class Heston_FFT
         Kokkos::View<double**> heston_call_prices(bool verbose) {return heston_call_prices(params, verbose);};
 
         /* Calibrating parameters */
-
+        double iv_surface_sq_loss(HestonParameters P);
+        HestonParameters diff_EV_iv_calibration(Kokkos::View<double*> strikes, Kokkos::View<double*> maturities,
+                                            ParameterBounds bounds, Diff_EV_config config, unsigned int seed);
 
 
     private:
@@ -205,14 +115,17 @@ class Heston_FFT
 
 
         /* FFT pricing helpers */
-        KOKKOS_INLINE_FUNCTION Complex heston_characteristic(Complex u, double t) const;
-        KOKKOS_INLINE_FUNCTION Complex damped_call(Complex v, double t) const;
+        KOKKOS_INLINE_FUNCTION Complex heston_characteristic(Complex u, double t, HestonParameters params) const;
+        KOKKOS_INLINE_FUNCTION Complex heston_characteristic(Complex u, double t) const {return heston_characteristic(u,t,params);};
+        KOKKOS_INLINE_FUNCTION Complex damped_call(Complex v, double t, HestonParameters params) const;
+        KOKKOS_INLINE_FUNCTION Complex damped_call(Complex v, double t) const {return damped_call(v,t,params);};
 };
 
 /***
     Heston Characteristic functions 
 ***/
-KOKKOS_INLINE_FUNCTION Complex Heston_FFT::heston_characteristic(Complex u, double t) const
+
+KOKKOS_INLINE_FUNCTION Complex Heston_FFT::heston_characteristic(Complex u, double t, HestonParameters params) const
 {
     // A bunch of repeated constants in the calculation
     Complex xi = params.kappa - i*params.rho*params.sigma*u;
@@ -241,10 +154,10 @@ KOKKOS_INLINE_FUNCTION Complex Heston_FFT::heston_characteristic(Complex u, doub
 /*** 
     Damped call price function 
 ***/
-KOKKOS_INLINE_FUNCTION Complex Heston_FFT::damped_call(Complex v, double t) const
+KOKKOS_INLINE_FUNCTION Complex Heston_FFT::damped_call(Complex v, double t, HestonParameters params) const
 {
     double alpha = fft_config.alpha;
-    Complex phi = heston_characteristic((v - i*(alpha + 1.0)), t);
+    Complex phi = heston_characteristic((v - i*(alpha + 1.0)), t, params);
     return (Kokkos::exp(-r*t) * phi) / (square(alpha) + alpha - v*v +i*(2.0*alpha + 1.0)*v);
 }
 
@@ -320,35 +233,60 @@ Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool v
     // Initialize variables and surface
     unsigned int n_strikes = strikes.extent(0);
     unsigned int n_maturities = maturities.extent(0);
+    unsigned int n_grid_points = fft_config.N;
+    double alpha = fft_config.alpha;
     Kokkos::View<double**> pricing_surface("iv_surface", n_strikes, n_maturities);
-    Kokkos::MDRangePolicy<Kokkos::Rank<2>> surface_policy({0,0}, {n_strikes, n_maturities});
+    
 
     // FFT setup
     double eta = 0.2;   // Step-size in damped Fourier space
     double lambda = (2.0*PI) / (fft_config.N*eta); // Transformed step size in log-price space
     double bound = 0.5*fft_config.N*lambda;
 
+    // Note: Default GPU layout is LEFT or row-major
+    Kokkos::MDRangePolicy<Kokkos::Rank<2>> fft_policy({0,0}, {fft_config.N, n_maturities});
+    Kokkos::View<Complex**> x("Fourier_input", n_grid_points, n_maturities);
 
+    Kokkos::parallel_for("Fourier_input_calculations" , fft_policy, 
+        KOKKOS_CLASS_LAMBDA(unsigned int k, unsigned int t) {
+            
+            // Compute damped call price
+            double v_k = eta*k;
+            Complex damped = this->damped_call(Complex(v_k, 0.0), maturities(t));
 
+            // Compute the Simpson quadrature weights
+            double w_k;
+            if (k == 0 || k == n_grid_points-1) { w_k = 1.0/3.0;}
+            else if (k % 2 == 1)                { w_k = 4.0/3.0;}
+            else                                { w_k = 2.0/3.0;}
 
-    // TODO
-    return pricing_surface;
-}
+            // Modify the damped call price to get the input
+            x(k, t) = Kokkos::exp(-i*bound*v_k) * damped * eta * w_k; 
+        });
+    
+    // FFT
+    Kokkos::View<Complex**> x_hat("x_hat", n_grid_points, n_maturities);
+    KokkosFFT::fft(exec_space(), x, x_hat);
 
+    // Undamp to get option call price
+    Kokkos::MDRangePolicy<Kokkos::Rank<2>> price_policy({0,0}, {n_strikes, n_maturities});
+    Kokkos::parallel_for("extract_prices", price_policy,
+        KOKKOS_CLASS_LAMBDA(unsigned int k, unsigned int t) {
 
+            // Find the Fourier grid price index
+            double log_K = Kokkos::log(strikes(k));
+            int index = static_cast<int>((log_K + bound) / lambda + 0.5);
 
-// ------------------------------------------------------------------------------------ //
-/* main() */
-// ------------------------------------------------------------------------------------ //
-int main (int argc, char* argv[])
-{
-    // Setting up OpenMP backend for the cases when run on host only
-    setenv("OMP_PROC_BIND", "spread", 1);
-    setenv("OMP_PLACES", "threads", 1);
-
-    Kokkos::initialize(argc, argv);
-    {
-
+            // Undamp to get the price at this index
+            if ((index < n_grid_points) && (index >= 0))
+                pricing_surface(k, t) = x_hat(index, t).real()*Kokkos::exp(-alpha*(lambda*index - bound)) / PI;
+            else
+                pricing_surface(k, t) = 0.0;
+        });
+    
+    if (verbose) {
+        // TODO
     }
-    Kokkos::finalize();
+
+    return pricing_surface;
 }
