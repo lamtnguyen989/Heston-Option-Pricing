@@ -7,7 +7,7 @@ namespace Routines
     KOKKOS_INLINE_FUNCTION double black_scholes_call(double S, double K, double r, double sigma, double tau);
     KOKKOS_INLINE_FUNCTION double vega(double S, double K, double r, double sigma, double tau);
     KOKKOS_INLINE_FUNCTION double implied_volatility(double call_price, double S, double K, double r, double tau, unsigned int max_iter, double epsilon);
-    Kokkos::View<double**> implied_volatility_surface(double call_price, double S, Kokkos::View<double*> K, double r, Kokkos::View<double*> T);
+    Kokkos::View<double**> implied_volatility_surface(Kokkos::View<double**> call_prices, double S, Kokkos::View<double*> K, double r, Kokkos::View<double*> T);
 };
 
 /***
@@ -50,7 +50,7 @@ KOKKOS_INLINE_FUNCTION double Routines::implied_volatility(double call_price, do
 
         // Newton update to the volatility
         vol -= price_diff / _vega;
-        vol = Kokkos::max(vol, EPSILON);
+        //vol = Kokkos::max(vol, EPSILON);
     }
 
     return vol;
@@ -59,20 +59,19 @@ KOKKOS_INLINE_FUNCTION double Routines::implied_volatility(double call_price, do
 /*** 
     Implied volatility surface routines
 ***/
-Kokkos::View<double**> Routines::implied_volatility_surface(double call_price, double S, Kokkos::View<double*> K, double r, Kokkos::View<double*> T)
+Kokkos::View<double**> Routines::implied_volatility_surface(Kokkos::View<double**> call_prices, double S, Kokkos::View<double*> K, double r, Kokkos::View<double*> T)
 {
     // Initialize variables and surface
     unsigned int n_strikes = K.extent(0);
     unsigned int n_maturities = T.extent(0);
     Kokkos::View<double**> iv_surface("iv_surface", n_strikes, n_maturities);
-
+    
     // Compute the implied_volatility at every point on the surface
     Kokkos::MDRangePolicy<Kokkos::Rank<2>> policy({0,0}, {n_strikes, n_maturities});
     Kokkos::parallel_for("iv_surface_computation", policy,
         KOKKOS_LAMBDA(unsigned int k, unsigned int t) {
-            iv_surface(k,t) = Routines::implied_volatility(call_price, S, K(k), r, T(t));
+            iv_surface(k,t) = Routines::implied_volatility(call_prices(k,t), S, K(k), r, T(t));
         });
 
-    // Return result
     return iv_surface;
 }
