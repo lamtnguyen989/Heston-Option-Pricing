@@ -1,5 +1,6 @@
 #include "headers.hpp"
 #include "routines.hpp"
+#include <iomanip>
 
 /* Heston model parameters */
 struct HestonParameters
@@ -193,6 +194,7 @@ Kokkos::View<double*> Heston_FFT::heston_call_prices_at_maturity(double t, bool 
             x(k) = Kokkos::exp(-i*bound*v_k) * damped * eta * w_k; 
         }
     );
+    Kokkos::fence();
 
     // FFT
     Kokkos::View<Complex*> x_hat("x_hat", grid_points);
@@ -263,10 +265,11 @@ Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool v
             // Modify the damped call price to get the input
             x(k, t) = Kokkos::exp(-i*bound*v_k) * damped * eta * w_k; 
         });
+    //Kokkos::fence();
     
     // FFT
     Kokkos::View<Complex**> x_hat("x_hat", n_grid_points, n_maturities);
-    KokkosFFT::fft(exec_space(), x, x_hat);
+    KokkosFFT::fft(exec_space(), x, x_hat, KokkosFFT::Normalization::backward, /*axis=*/ 0);
 
     // Undamp to get option call price
     Kokkos::MDRangePolicy<Kokkos::Rank<2>> price_policy({0,0}, {n_strikes, n_maturities});
@@ -283,6 +286,7 @@ Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool v
             else
                 pricing_surface(k, t) = 0.0;
         });
+    //Kokkos::fence();
     
     if (verbose) {
         // TODO
