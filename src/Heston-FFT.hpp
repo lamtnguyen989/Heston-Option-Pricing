@@ -11,7 +11,7 @@ struct HestonParameters
     double sigma;    // Vol of vol
 
     /* Constructors */
-    HestonParameters();
+    HestonParameters() {};
 
     HestonParameters(double v_0, double kappa, double theta, double rho, double sigma)
         : v0(v_0), kappa(kappa), theta(theta), rho(rho), sigma(sigma)
@@ -100,7 +100,7 @@ class Heston_FFT
 
         /* Calibrating parameters */
         double iv_surface_sq_loss(HestonParameters P);
-        HestonParameters diff_EV_iv_calibration(Kokkos::View<double*> strikes, Kokkos::View<double*> maturities,
+        HestonParameters diff_EV_iv_surf_calibration(Kokkos::View<double**> iv_surface, Kokkos::View<double*> strikes, Kokkos::View<double*> maturities,
                                             ParameterBounds bounds, Diff_EV_config config, unsigned int seed);
 
 
@@ -294,7 +294,7 @@ Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool v
         // Print Maturity Headers
         Kokkos::printf("\n%18s |", "Strike / Maturity");
         for (unsigned int t = 0; t < n_maturities; t++) {
-            Kokkos::printf(" %10.3f", h_maturities(t));
+            Kokkos::printf(" %10.2f", h_maturities(t));
         }
         Kokkos::printf("\n-------------------|");
         for (unsigned int t = 0; t < n_maturities; t++) {
@@ -314,4 +314,49 @@ Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool v
     }
 
     return pricing_surface;
+}
+
+/***
+    Calibration
+***/
+HestonParameters Heston_FFT::diff_EV_iv_surf_calibration(Kokkos::View<double**> iv_surface, Kokkos::View<double*> strikes, Kokkos::View<double*> maturities,
+                                            ParameterBounds bounds, Diff_EV_config config, unsigned int seed)
+{
+    unsigned int n_strikes = strikes.extent(0);
+    unsigned int n_maturities = maturities.extent(0);
+
+    // Checking the surface dimension
+    if (n_strikes != iv_surface.extent(0) || n_maturities != iv_surface.extent(1))
+        Kokkos::abort("Dimensional mismatch between implied volatility surface and strikes, maturities data");
+
+    // Variables and containers
+    unsigned int population_size = config.population_size;
+    //Kokkos::Random_XorShift64_Pool<> rand_pool(seed);
+    //Kokkos::View<HestonParameters*> population("population", population_size);
+    //Kokkos::View<HestonParameters*> mutations("mutations", population_size);
+    //Kokkos::View<double*> population_losses("population_losses", population_size);
+    //Kokkos::View<double*> mutation_losses("mutation_losses", population_size);
+/*
+    // Initialize population
+
+    Kokkos::parallel_for("init_pop", population_size,
+        KOKKOS_CLASS_LAMBDA(unsigned int k){
+                
+            // Getting the random state
+            Kokkos::Random_XorShift64_Pool<>::generator_type generator = rand_pool.get_state();
+
+            // Initialize population randomly
+            population(k).v0 = bounds.v0_min + generator.drand()*(bounds.v0_max - bounds.v0_min);
+            population(k).kappa = bounds.kappa_min + generator.drand()*(bounds.kappa_max - bounds.kappa_min);
+            population(k).theta = bounds.theta_min + generator.drand()*(bounds.theta_max - bounds.theta_min);
+            population(k).rho = bounds.rho_min + generator.drand()*(bounds.rho_max - bounds.rho_min);
+            population(k).sigma = bounds.sigma_min + generator.drand()*(bounds.sigma_max - bounds.sigma_min);
+
+            // Free the random state
+            rand_pool.free_state(generator);
+        });
+    Kokkos::fence();
+*/
+    // TODO
+    return HestonParameters();   
 }
