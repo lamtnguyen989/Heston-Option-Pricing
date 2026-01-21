@@ -193,6 +193,7 @@ Kokkos::View<double*> Heston_FFT::heston_call_prices_at_maturity(double t, bool 
             x(k) = Kokkos::exp(-i*bound*v_k) * damped * eta * w_k; 
         }
     );
+    Kokkos::fence();
 
     // FFT
     Kokkos::View<Complex*> x_hat("x_hat", grid_points);
@@ -266,7 +267,7 @@ Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool v
     
     // FFT
     Kokkos::View<Complex**> x_hat("x_hat", n_grid_points, n_maturities);
-    KokkosFFT::fft(exec_space(), x, x_hat);
+    KokkosFFT::fft(exec_space(), x, x_hat, KokkosFFT::Normalization::backward, /*axis=*/ 0);
 
     // Undamp to get option call price
     Kokkos::MDRangePolicy<Kokkos::Rank<2>> price_policy({0,0}, {n_strikes, n_maturities});
@@ -285,7 +286,31 @@ Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool v
         });
     
     if (verbose) {
-        // TODO
+        // Copy data back to host since parallelized prints are unreliable (a.k.a possible tech-debt)
+        Kokkos::View<double**, Kokkos::LayoutLeft, Kokkos::HostSpace> h_prices = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), pricing_surface);
+        Kokkos::View<double*, Kokkos::HostSpace> h_strikes = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), strikes);
+        Kokkos::View<double*, Kokkos::HostSpace> h_maturities = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), maturities);
+
+        // Print Maturity Headers
+        Kokkos::printf("\n%18s |", "Strike / Maturity");
+        for (unsigned int t = 0; t < n_maturities; t++) {
+            Kokkos::printf(" %10.3f", h_maturities(t));
+        }
+        Kokkos::printf("\n-------------------|");
+        for (unsigned int t = 0; t < n_maturities; t++) {
+            Kokkos::printf("-----------");
+        }
+        Kokkos::printf("\n");
+
+        // Print Strike Rows
+        for (unsigned int k = 0; k < n_strikes; k++) {
+            Kokkos::printf("%18.2f |", h_strikes(k)); 
+            for (unsigned int t = 0; t < n_maturities; t++) {
+                Kokkos::printf(" %10.4f", h_prices(k, t));
+            }
+            Kokkos::printf("\n");
+        }
+        Kokkos::printf("\n");
     }
 
     return pricing_surface;
