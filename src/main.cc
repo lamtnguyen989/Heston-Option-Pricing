@@ -31,7 +31,7 @@ int main (int argc, char* argv[])
 
         Kokkos::parallel_for("fill_maturities", n_maturities,
             KOKKOS_LAMBDA(unsigned int k) {
-                maturities(k) = static_cast<double>(k) / (n_maturities - 1);
+                maturities(k) = static_cast<double>(k) / (n_maturities - 1) + 0.25;
             }
         );
         Kokkos::fence();
