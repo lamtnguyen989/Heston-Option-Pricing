@@ -103,7 +103,8 @@ class Heston_FFT
                                             ParameterBounds bounds, Diff_EV_config config, unsigned int seed);
 
         HestonParameters diff_EV_iv_surf_calibration(Kokkos::View<double**> iv_surface, ParameterBounds bounds, Diff_EV_config config, unsigned int seed);
-        void evaluate_iv_loss_sample(Kokkos::View<double**> iv_surface, Kokkos::View<HestonParameters*> sample, Kokkos::View<double*> sample_loss);
+
+        void evaluate_iv_loss_sample(Kokkos::View<double**> iv_surface, Kokkos::View<HestonParameters*>& sample, Kokkos::View<double*>& sample_loss);
 
     private:
         /* Data fields */
@@ -479,7 +480,7 @@ HestonParameters Heston_FFT::diff_EV_iv_surf_calibration(Kokkos::View<double**> 
 }
 
 // Helper for evaluating iv loss of sample (a.k.a populations or mutations)
-void Heston_FFT::evaluate_iv_loss_sample(Kokkos::View<double**> iv_surface, Kokkos::View<HestonParameters*> sample, Kokkos::View<double*> sample_loss)
+void Heston_FFT::evaluate_iv_loss_sample(Kokkos::View<double**> iv_surface, Kokkos::View<HestonParameters*>& sample, Kokkos::View<double*>& sample_loss)
 {
     // Bounds and policies
     unsigned int n_maturities = iv_surface.extent(1);
@@ -498,6 +499,7 @@ void Heston_FFT::evaluate_iv_loss_sample(Kokkos::View<double**> iv_surface, Kokk
                 local_iv_loss += square(iv_surface(k,t) - sample_iv_surface(k,t));
             }, sample_iv_loss_s);
         Kokkos::fence();
+        sample_loss(s) = sample_iv_loss_s;
     }
 }
 
