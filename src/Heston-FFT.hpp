@@ -102,6 +102,8 @@ class Heston_FFT
         HestonParameters diff_EV_iv_surf_calibration(Kokkos::View<double**> iv_surface, Kokkos::View<double*> strikes, Kokkos::View<double*> maturities,
                                             ParameterBounds bounds, Diff_EV_config config, unsigned int seed);
 
+        HestonParameters diff_EV_iv_surf_calibration(Kokkos::View<double**> iv_surface, ParameterBounds bounds, Diff_EV_config config, unsigned int seed);
+        void evaluate_iv_loss_sample(Kokkos::View<double**> iv_surface, Kokkos::View<HestonParameters*> sample, Kokkos::View<double*> sample_loss);
 
     private:
         /* Data fields */
@@ -123,15 +125,15 @@ class Heston_FFT
 /***
     Heston Characteristic functions 
 ***/
-
 KOKKOS_INLINE_FUNCTION Complex Heston_FFT::heston_characteristic(Complex u, double t, HestonParameters params) const
 {
     // A bunch of repeated constants in the calculation
     Complex xi = params.kappa - i*params.rho*params.sigma*u;
     Complex d = Kokkos::sqrt(square(xi) + square(params.sigma)*(square(u) + i*u));
-    if (Kokkos::real(d) < 0.0) { d = -d;}
-    //Complex g_1 = (xi + d) / (xi - d);
+    if (Kokkos::real(d) < 0.0) // Branch cut handling
+        d = -d;
     Complex g_2 = (xi - d) / (xi + d);
+    //Complex g_1 = (xi + d) / (xi - d); // g_1 = 1/g_2
 
     // Safe guard the fraction within the exponential terms 
     Complex log_arg_frac = Kokkos::abs(1.0 - g_2) > EPSILON 
@@ -468,3 +470,34 @@ HestonParameters Heston_FFT::diff_EV_iv_surf_calibration(Kokkos::View<double**> 
     // Return
     return population(bestLoc.loc);   
 }
+
+HestonParameters Heston_FFT::diff_EV_iv_surf_calibration(Kokkos::View<double**> iv_surface, 
+                                                        ParameterBounds bounds=ParameterBounds(), Diff_EV_config config=Diff_EV_config(), 
+                                                        unsigned int seed=12345) 
+{
+    return diff_EV_iv_surf_calibration(iv_surface, this->strikes, this->maturities, bounds, config, seed);
+}
+
+// Helper for evaluating iv loss of sample (a.k.a populations or mutations)
+void Heston_FFT::evaluate_iv_loss_sample(Kokkos::View<double**> iv_surface, Kokkos::View<HestonParameters*> sample, Kokkos::View<double*> sample_loss)
+{
+    // Bounds and policies
+    unsigned int n_maturities = iv_surface.extent(1);
+    unsigned int n_strikes = iv_surface.extent(0);
+    unsigned int sample_size = sample.extent(0);
+    Kokkos::MDRangePolicy<Kokkos::Rank<2>> surface_policy({0,0}, {n_strikes, n_maturities});
+
+    for (unsigned int s = 0; s < sample_size; s++) {
+        double sample_iv_loss_s = 0;
+        Kokkos::View<double**> sample_iv_surface = Routines::implied_volatility_surface(
+                                                        this->heston_call_prices(sample(s), /*verbose=*/false),
+                                                        this->S, this->strikes, this->r, this->maturities
+                                                    );
+        Kokkos::parallel_reduce("compute_loss", surface_policy, 
+            KOKKOS_CLASS_LAMBDA(unsigned int k, unsigned int t, double& local_iv_loss) {
+                local_iv_loss += square(iv_surface(k,t) - sample_iv_surface(k,t));
+            }, sample_iv_loss_s);
+        Kokkos::fence();
+    }
+}
+
