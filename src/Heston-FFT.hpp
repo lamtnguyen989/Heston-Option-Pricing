@@ -1,81 +1,7 @@
 #include "headers.hpp"
 #include "routines.hpp"
+#include "Params-and-Configs.hpp"
 
-/* Heston model parameters */
-struct HestonParameters
-{
-    double v0;       // Initial variance
-    double kappa;    // Mean-reversing variance process factor
-    double theta;    // Long-term variance
-    double rho;      // Correlation
-    double sigma;    // Vol of vol
-
-    /* Constructors */
-    KOKKOS_INLINE_FUNCTION HestonParameters() {};
-
-    KOKKOS_INLINE_FUNCTION HestonParameters(double v_0, double kappa, double theta, double rho, double sigma)
-        : v0(v_0), kappa(kappa), theta(theta), rho(rho), sigma(sigma)
-        {}
-};
-
-// ------------------------------------------------------------------------------------ //
-/* Fast Fourier Transform config */
-struct FFT_config
-{
-    unsigned int N; // Grid-size
-    double alpha;   // Dampening factor
-
-    FFT_config() 
-        : N(8192) , alpha(2.0)
-    {}
-};
-
-// ------------------------------------------------------------------------------------ //
-/* Parameter bound for calibrating */
-struct ParameterBounds 
-{
-    /* Parameters bounds */
-    double v0_min, v0_max;
-    double kappa_min, kappa_max;
-    double theta_min, theta_max;
-    double rho_min, rho_max;
-    double sigma_min, sigma_max;
-
-    /* Generation bounds (If I want to incorporate later) */
-
-    /* Hard-setting default bounds */
-    ParameterBounds()
-        : v0_min(0.01) , v0_max(0.05)
-        , kappa_min(0.5) , kappa_max(10.0)
-        , theta_min(0.05) , theta_max(0.8)
-        , rho_min(-0.999) , rho_max(0.999)
-        , sigma_min(0.05) , sigma_max(0.8)
-    {}
-};
-
-// ------------------------------------------------------------------------------------ //
-/* Differential Evolution configurations */
-struct Diff_EV_config
-{
-    unsigned int population_size;   // The total population size
-    double crossover_prob;          // Cross-over probability
-    double weight;                  // Differential weight
-    unsigned int n_gen;             // Max iteration
-    double tolerance;               // Conergence threshold
-
-    Diff_EV_config(unsigned int NP, double CR, double w, unsigned int max_gen, double tol)
-        : population_size(NP) , crossover_prob(CR) , weight(w) 
-        , n_gen(max_gen) , tolerance(tol)
-    {}
-
-    Diff_EV_config()    // Wikipedia suggested parameters for empty constructor
-        : population_size(50) , crossover_prob(0.9) , weight(0.8)
-        , n_gen(100) , tolerance(EPSILON)
-    {}
-};
-
-
-// ------------------------------------------------------------------------------------ //
 /* FFT solver object */
 class Heston_FFT
 {
@@ -103,8 +29,7 @@ class Heston_FFT
                                             ParameterBounds bounds, Diff_EV_config config, unsigned int seed);
 
         HestonParameters diff_EV_iv_surf_calibration(Kokkos::View<double**> iv_surface, ParameterBounds bounds, Diff_EV_config config, unsigned int seed);
-
-        void evaluate_iv_loss_sample(Kokkos::View<double**> iv_surface, Kokkos::View<HestonParameters*>& sample, Kokkos::View<double*>& sample_loss);
+        //void evaluate_iv_loss_sample(Kokkos::View<double**> iv_surface, Kokkos::View<HestonParameters*>& sample, Kokkos::View<double*>& sample_loss);
 
     private:
         /* Data fields */
@@ -419,11 +344,11 @@ HestonParameters Heston_FFT::diff_EV_iv_surf_calibration(Kokkos::View<double**> 
                         }
                     } else {
                         switch (j) {
-                            case 0: mutations(p).v0 = population(p).v0; break;
-                            case 1: mutations(p).kappa = population(p).kappa; break;
-                            case 2: mutations(p).theta = population(p).theta; break;
-                            case 3: mutations(p).rho = population(p).rho; break;
-                            case 4: mutations(p).sigma = population(p).sigma; break;
+                            case 0: mutations(p).v0 = population(p).v0;         break;
+                            case 1: mutations(p).kappa = population(p).kappa;   break;
+                            case 2: mutations(p).theta = population(p).theta;   break;
+                            case 3: mutations(p).rho = population(p).rho;       break;
+                            case 4: mutations(p).sigma = population(p).sigma;   break;
                         }
                     }
                 }
@@ -473,12 +398,10 @@ HestonParameters Heston_FFT::diff_EV_iv_surf_calibration(Kokkos::View<double**> 
 }
 
 HestonParameters Heston_FFT::diff_EV_iv_surf_calibration(Kokkos::View<double**> iv_surface, 
-                                                        ParameterBounds bounds=ParameterBounds(), Diff_EV_config config=Diff_EV_config(), 
-                                                        unsigned int seed=12345) 
-{
-    return diff_EV_iv_surf_calibration(iv_surface, this->strikes, this->maturities, bounds, config, seed);
-}
+                                                        ParameterBounds bounds=ParameterBounds(), Diff_EV_config config=Diff_EV_config(), unsigned int seed=12345)  
+{return diff_EV_iv_surf_calibration(iv_surface, this->strikes, this->maturities, bounds, config, seed);}
 
+/*
 // Helper for evaluating iv loss of sample (a.k.a populations or mutations)
 void Heston_FFT::evaluate_iv_loss_sample(Kokkos::View<double**> iv_surface, Kokkos::View<HestonParameters*>& sample, Kokkos::View<double*>& sample_loss)
 {
@@ -491,9 +414,8 @@ void Heston_FFT::evaluate_iv_loss_sample(Kokkos::View<double**> iv_surface, Kokk
     for (unsigned int s = 0; s < sample_size; s++) {
         double sample_iv_loss_s = 0;
         Kokkos::View<double**> sample_iv_surface = Routines::implied_volatility_surface(
-                                                        this->heston_call_prices(sample(s), /*verbose=*/false),
-                                                        this->S, this->strikes, this->r, this->maturities
-                                                    );
+                                                        this->heston_call_prices(sample(s), false),
+                                                        this->S, this->strikes, this->r, this->maturities);
         Kokkos::parallel_reduce("compute_loss", surface_policy, 
             KOKKOS_CLASS_LAMBDA(unsigned int k, unsigned int t, double& local_iv_loss) {
                 local_iv_loss += square(iv_surface(k,t) - sample_iv_surface(k,t));
@@ -502,4 +424,5 @@ void Heston_FFT::evaluate_iv_loss_sample(Kokkos::View<double**> iv_surface, Kokk
         sample_loss(s) = sample_iv_loss_s;
     }
 }
+*/
 
