@@ -1,5 +1,5 @@
 #include "headers.hpp"
-#include "routines.hpp"
+#include "Routines.hpp"
 #include "Params-and-Configs.hpp"
 
 /* FFT solver object */
@@ -143,6 +143,7 @@ Kokkos::View<double*> Heston_FFT::heston_call_prices_at_maturity(double t, bool 
         });
 
     if (verbose) {
+        Kokkos::printf("Maturity t=%.2f\n", t);
         Kokkos::printf("Strike \t\t Call Price\n");
         Kokkos::printf("-----------------------\n");
         Kokkos::parallel_for("print_result", strikes.extent(0),
@@ -171,7 +172,7 @@ Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool v
     double lambda = (2.0*PI) / (fft_config.N*eta); // Transformed step size in log-price space
     double bound = 0.5*fft_config.N*lambda;
 
-    // Note: Default GPU layout is LEFT or row-major
+    // Note: Default GPU layout is LEFT or row-major in the case of matrices (2D tensor)
     Kokkos::MDRangePolicy<Kokkos::Rank<2>> fft_policy({0,0}, {fft_config.N, n_maturities});
     Kokkos::View<Complex**> x("Fourier_input", n_grid_points, n_maturities);
 
