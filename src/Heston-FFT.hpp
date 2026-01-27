@@ -11,6 +11,10 @@ class Heston_FFT
             : S(S) , r(r), strikes(K) , maturities(T) , params(P), fft_config(FFT_config())
         {}
 
+        Heston_FFT(double S, double r, Kokkos::View<double*> K, Kokkos::View<double*> T, HestonParameters P, FFT_config config)
+            : S(S) , r(r), strikes(K) , maturities(T) , params(P), fft_config(config)
+        {}
+
         /* Update model methods */
         void update_parameters(HestonParameters p) {params = p;}
         void update_spot(double S_new) {S = S_new;}
@@ -27,9 +31,7 @@ class Heston_FFT
         /* Calibrating parameters */
         HestonParameters diff_EV_iv_surf_calibration(Kokkos::View<double**> iv_surface, Kokkos::View<double*> strikes, Kokkos::View<double*> maturities,
                                             ParameterBounds bounds, Diff_EV_config config, unsigned int seed);
-
         HestonParameters diff_EV_iv_surf_calibration(Kokkos::View<double**> iv_surface, ParameterBounds bounds, Diff_EV_config config, unsigned int seed);
-        //void evaluate_iv_loss_sample(Kokkos::View<double**> iv_surface, Kokkos::View<HestonParameters*>& sample, Kokkos::View<double*>& sample_loss);
 
     private:
         /* Data fields */
@@ -143,7 +145,7 @@ Kokkos::View<double*> Heston_FFT::heston_call_prices_at_maturity(double t, bool 
         });
 
     if (verbose) {
-        Kokkos::printf("Maturity t=%.2f\n", t);
+        Kokkos::printf("Maturity t = %.2f\n", t);
         Kokkos::printf("Strike \t\t Call Price\n");
         Kokkos::printf("-----------------------\n");
         Kokkos::parallel_for("print_result", strikes.extent(0),
@@ -214,7 +216,7 @@ Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool v
         });
     
     if (verbose) {
-        // Copy data back to host since parallelized prints are unreliable (a.k.a possible tech-debt)
+        // Copy data back to host since parallelized prints are unreliable
         Kokkos::View<double**, Kokkos::LayoutLeft, Kokkos::HostSpace> h_prices = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), pricing_surface);
         Kokkos::View<double*, Kokkos::HostSpace> h_strikes = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), strikes);
         Kokkos::View<double*, Kokkos::HostSpace> h_maturities = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), maturities);
@@ -399,31 +401,7 @@ HestonParameters Heston_FFT::diff_EV_iv_surf_calibration(Kokkos::View<double**> 
 }
 
 HestonParameters Heston_FFT::diff_EV_iv_surf_calibration(Kokkos::View<double**> iv_surface, 
-                                                        ParameterBounds bounds=ParameterBounds(), Diff_EV_config config=Diff_EV_config(), unsigned int seed=12345)  
+                                                        ParameterBounds bounds=ParameterBounds(), Diff_EV_config config=Diff_EV_config(), 
+                                                        unsigned int seed=12345)
 {return diff_EV_iv_surf_calibration(iv_surface, this->strikes, this->maturities, bounds, config, seed);}
-
-/*
-// Helper for evaluating iv loss of sample (a.k.a populations or mutations)
-void Heston_FFT::evaluate_iv_loss_sample(Kokkos::View<double**> iv_surface, Kokkos::View<HestonParameters*>& sample, Kokkos::View<double*>& sample_loss)
-{
-    // Bounds and policies
-    unsigned int n_maturities = iv_surface.extent(1);
-    unsigned int n_strikes = iv_surface.extent(0);
-    unsigned int sample_size = sample.extent(0);
-    Kokkos::MDRangePolicy<Kokkos::Rank<2>> surface_policy({0,0}, {n_strikes, n_maturities});
-
-    for (unsigned int s = 0; s < sample_size; s++) {
-        double sample_iv_loss_s = 0;
-        Kokkos::View<double**> sample_iv_surface = Routines::implied_volatility_surface(
-                                                        this->heston_call_prices(sample(s), false),
-                                                        this->S, this->strikes, this->r, this->maturities);
-        Kokkos::parallel_reduce("compute_loss", surface_policy, 
-            KOKKOS_CLASS_LAMBDA(unsigned int k, unsigned int t, double& local_iv_loss) {
-                local_iv_loss += square(iv_surface(k,t) - sample_iv_surface(k,t));
-            }, sample_iv_loss_s);
-        Kokkos::fence();
-        sample_loss(s) = sample_iv_loss_s;
-    }
-}
-*/
 

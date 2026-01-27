@@ -45,12 +45,11 @@ KOKKOS_INLINE_FUNCTION double Routines::implied_volatility(double call_price, do
         if (Kokkos::abs(price_diff) < epsilon) {break;}
 
         // Vega computation
-        double _vega = vega(S, K, r, vol, tau);
-        if (_vega < EPSILON) {_vega = EPSILON;}
+        double v = vega(S, K, r, vol, tau);
+        if (v < EPSILON) {v = EPSILON;}
 
         // Newton update to the volatility
-        vol -= price_diff / _vega;
-        //vol = Kokkos::max(vol, EPSILON);
+        vol -= price_diff / v;
     }
 
     return vol;
