@@ -363,7 +363,7 @@ HestonParameters Heston_FFT::diff_EV_iv_surf_calibration(Kokkos::View<double**> 
 
         // Evaluate the mutations
         for (unsigned int m = 0; m < population_size; m++) {
-            double mut_iv_loss = 0;
+            double mut_iv_loss = 0.0;
             Kokkos::View<double**> call_prices_surface_m = this->heston_call_prices(mutations(m), /*verbose=*/false);
             Kokkos::View<double**> population_iv_surface_m = Routines::implied_volatility_surface(call_prices_surface_m, this->S, this->strikes, this->r, this->maturities);
             Kokkos::parallel_reduce("init_pop_loss_calc", surface_policy, 
@@ -371,6 +371,11 @@ HestonParameters Heston_FFT::diff_EV_iv_surf_calibration(Kokkos::View<double**> 
                     local_iv_loss += square(population_iv_surface_m(k,t) - iv_surface(k,t));
                 }, mut_iv_loss);
             Kokkos::fence();
+
+            if (mut_iv_loss < config.tolerance) {   // If the mutation is below tolerance, early breaking
+                return mutations(m);
+            }
+            
             mutation_losses(m) = mut_iv_loss;
         }
 
