@@ -27,6 +27,8 @@ class Heston_FFT
         Kokkos::View<double**> heston_call_prices(HestonParameters p, bool verbose) const;
         Kokkos::View<double*> heston_call_prices_at_maturity(double t, bool verbose) const;
         Kokkos::View<double**> heston_call_prices(bool verbose) {return heston_call_prices(params, verbose);};
+        Kokkos::View<double**> heston_put_prices(HestonParameters P, bool verbose) const;
+        Kokkos::View<double**> heston_put_prices(bool verbose) {return heston_put_prices(params, verbose);};
 
         /* Calibrating parameters */
         HestonParameters diff_EV_iv_surf_calibration(Kokkos::View<double**> iv_surface, Kokkos::View<double*> strikes, Kokkos::View<double*> maturities,
@@ -222,7 +224,8 @@ Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool v
         Kokkos::View<double*, Kokkos::HostSpace> h_maturities = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), maturities);
 
         // Print Maturity Headers
-        Kokkos::printf("\n%18s |", "Strike / Maturity");
+        Kokkos::printf("Call price grid\n");
+        Kokkos::printf("%18s |", "Strike / Maturity");
         for (unsigned int t = 0; t < n_maturities; t++) {
             Kokkos::printf(" %10.2f", h_maturities(t));
         }
@@ -245,6 +248,56 @@ Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool v
 
     return pricing_surface;
 }
+
+/***
+    Put prices via parity
+***/
+Kokkos::View<double**> Heston_FFT::heston_put_prices(HestonParameters P, bool verbose) const
+{
+    // Computing the call price surface 
+    Kokkos::View<double**> pricing_surface = this->heston_call_prices(P, false);
+
+    // Apply the put-call parity
+    unsigned int n_strikes = strikes.extent(0);
+    unsigned int n_maturities = maturities.extent(0);
+    Kokkos::MDRangePolicy<Kokkos::Rank<2>> surface_policy({0,0}, {n_strikes, n_maturities});
+    Kokkos::parallel_for("put_call_parity", surface_policy,
+        KOKKOS_CLASS_LAMBDA(unsigned int k, unsigned int t) {
+            pricing_surface(k,t) = pricing_surface(k,t) - S + strikes(k) + Kokkos::exp(-r*t);            
+        });
+
+    if (verbose) {
+        // Copy data back to host since parallelized prints are unreliable
+        Kokkos::View<double**, Kokkos::LayoutLeft, Kokkos::HostSpace> h_prices = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), pricing_surface);
+        Kokkos::View<double*, Kokkos::HostSpace> h_strikes = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), strikes);
+        Kokkos::View<double*, Kokkos::HostSpace> h_maturities = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), maturities);
+
+        // Print Maturity Headers
+        Kokkos::printf("Put price grid\n");
+        Kokkos::printf("%18s |", "Strike / Maturity");
+        for (unsigned int t = 0; t < n_maturities; t++) {
+            Kokkos::printf(" %10.2f", h_maturities(t));
+        }
+        Kokkos::printf("\n-------------------|");
+        for (unsigned int t = 0; t < n_maturities; t++) {
+            Kokkos::printf("-----------");
+        }
+        Kokkos::printf("\n");
+
+        // Print Strike Rows
+        for (unsigned int k = 0; k < n_strikes; k++) {
+            Kokkos::printf("%18.2f |", h_strikes(k));
+            for (unsigned int t = 0; t < n_maturities; t++) {
+                Kokkos::printf(" %10.4f", h_prices(k, t));
+            }
+            Kokkos::printf("\n");
+        }
+        Kokkos::printf("\n");
+    }
+        
+    return pricing_surface;
+}
+
 
 /***
     Calibration
