@@ -16,7 +16,7 @@ class HestonMC
     public:
         /* Constructors */
         HestonMC(double S0, double r, HestonParameters P, unsigned int paths, unsigned int steps)
-            : S_0(S0) , r(r) , params(P), n_paths(paths), n_steps(steps)
+            : S_0(S0) , r(r) , params(P)
             {}
 
         /* Simulations */
@@ -27,17 +27,57 @@ class HestonMC
         double S_0;
         double r;
         HestonParameters params;
-        unsigned int n_steps;
-        unsigned int n_paths;
 };
 
-MCResult HestonMC::single_EU_call_Milstein(double K, double T, unsigned int steps, unsigned int paths=1e5, unsigned int seed=12345)
+MCResult HestonMC::single_EU_call_Milstein(double K, double T, unsigned int steps, unsigned int paths, unsigned int seed)
 {
-    // Initialize states
+    // Processing parameters
+    double dt = T / steps;
+
+    // Initialize states and processes
     Kokkos::Random_XorShift64_Pool<> rand_pool(seed);
-    MCResult result;
+    Kokkos::View<double*> S("price_process", paths);
+    Kokkos::View<double*> V("variance_process", paths);
+    Kokkos::parallel_for("init_processes", paths, 
+        KOKKOS_CLASS_LAMBDA(unsigned int p){
+            S(p) = S_0;
+            V(p) = params.v0;
+        });
+
+    // Pre-compute random noises (to avoid potential race-condition later, tho look into more)
+    Kokkos::View<double**> Z_s("stock_noise", paths, steps);
+    Kokkos::View<double**> Z_v("variance_uncorrelated_noise", paths, steps);
+    
+    Kokkos::MDRangePolicy<Kokkos::Rank<2>> noise_gen_policy({0,0}, {paths, steps});
+    Kokkos::parallel_for("Pre-computed_uncorrelated_noise", noise_gen_policy, 
+        KOKKOS_CLASS_LAMBDA(unsigned int p, unsigned int t){
+            Kokkos::Random_XorShift64_Pool<>::generator_type generator = rand_pool.get_state();
+
+            Z_s(p,t) = generator.normal(0.0,1.0);
+            Z_v(p,t) = generator.normal(0.0,1.0);
+
+            rand_pool.free_state(generator);
+        });
+    Kokkos::fence();
+    Kokkos::parallel_for("correlating_noise", noise_gen_policy, 
+        KOKKOS_CLASS_LAMBDA(unsigned int p, unsigned int t) {
+            double Z_2 = Z_v(p,t);
+            Z_v(p,t) = params.rho*Z_s(p,t) + Kokkos::sqrt(1-square(params.rho))*Z_2;
+        });
+    Kokkos::fence();
+
+    // Note simulation is serial in time but parallel in paths (minus the noise correlation, but that is precomputed above)
+    for (unsigned int t = 1; t < steps; t++) {
+        Kokkos::parallel_for("Milstein_step", steps, 
+            KOKKOS_CLASS_LAMBDA(unsigned int p){
+                // TODO
+        });
+        Kokkos::fence();
+    }
+
 
     // TODO
+    MCResult result;
     result.price = 0.0;
     result.std_dev = 0.0;
     result.ci_upper = 0.0;
