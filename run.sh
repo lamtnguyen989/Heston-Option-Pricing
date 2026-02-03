@@ -15,6 +15,7 @@ rm -f run.log $BUILD_DIR/hestonFFT
 
 # Cmake config
 cmake   -B $BUILD_DIR \
+        -DBUILD_TESTING=ON \
         -DCMAKE_BUILD_TYPE=Release \
         -DKokkos_ENABLE_CUDA_RELOCATABLE_DEVICE_CODE=ON \
 

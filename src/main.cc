@@ -52,6 +52,7 @@ int main (int argc, char* argv[])
         // Pricing surface
         bool verbose = true;
         solver.heston_call_prices(verbose);
+        solver.heston_put_prices(verbose);
 
         // Pricing at t=1.0
         solver.heston_call_prices_at_maturity(1.0, verbose);
