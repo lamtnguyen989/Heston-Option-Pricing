@@ -15,7 +15,7 @@ class HestonMC
 {
     public:
         /* Constructors */
-        HestonMC(double S0, double r, HestonParameters P, unsigned int paths, unsigned int steps)
+        HestonMC(double S0, double r, HestonParameters P)
             : S_0(S0) , r(r) , params(P)
             {}
 
@@ -68,20 +68,20 @@ MCResult HestonMC::single_EU_call_Milstein(double K, double T, unsigned int step
 
     // Note simulation is serial in time but parallel in paths (minus the noise correlation, but that is precomputed above)
     for (unsigned int t = 1; t < steps; t++) {
-        Kokkos::parallel_for("Milstein_step", steps - 1, 
+        Kokkos::parallel_for("Milstein_step", paths, 
             KOKKOS_CLASS_LAMBDA(unsigned int p){
+
+                // Computing the evolution of the variance process
+                double V_curr = Kokkos::fmax(V(p), 0.0);
+                V(p) += params.kappa*(params.theta - V_curr)
+                    + params.sigma*Kokkos::sqrt(V_curr * dt)*Z_v(p,t)
+                    + 0.25 * square(params.sigma) * (square(Z_v(p,t)) - 1);
 
                 // Computing the evolution of the price process
                 double S_curr = S(p);
                 S(p) += this->r * dt
                     + Kokkos::sqrt(V(p) * dt) * S_curr * Z_s(p,t)
                     + 0.25 * square(S_curr) * (square(Z_s(p,t)) - 1);
-
-                // Computing the evolution of the variance process
-                double V_curr = V(p);
-                V(p) += params.kappa*(params.theta - V_curr)
-                    + params.sigma*Kokkos::sqrt(V_curr * dt)*Z_v(p,t)
-                    + 0.25 * square(params.sigma) * (square(Z_v(p,t)) - 1);
         });
         Kokkos::fence();
     }
@@ -103,15 +103,17 @@ MCResult HestonMC::single_EU_call_Milstein(double K, double T, unsigned int step
         }, variance);
     Kokkos::fence();
     variance /= paths;
-    double std_deviation =  Kokkos::sqrt(variance);
+    double std_error = Kokkos::sqrt(variance) / Kokkos::sqrt(static_cast<double>(paths));
 
     // Compute the result
-    double discount_factor = Kokkos::exp(-this->r * T);
-    
+    double discount_factor = Kokkos::exp(-r * T);
+    double ci_width = 1.96 * std_error * discount_factor;
+
     MCResult result;
-    result.discounted_price =  discount_factor * mean_payoff;
-    result.std_dev = std_deviation;
-    result.ci_upper = result.discounted_price + (1.96 * std_deviation * discount_factor);
-    result.ci_lower = result.discounted_price - (1.96 * std_deviation * discount_factor);
+    result.discounted_price = discount_factor * mean_payoff;
+    result.std_dev = std_error * discount_factor;
+    result.ci_upper = result.discounted_price + ci_width;
+    result.ci_lower = result.discounted_price - ci_width;
+    
     return result;
 }
