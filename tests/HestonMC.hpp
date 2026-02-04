@@ -4,10 +4,10 @@
 /* Monte Carlo simulation results container */
 struct MCResult
 {
-    double price;       // Monte-Carlo result discounted back
-    double std_dev;     // Standard deviation of result
-    double ci_lower;    // Confidence Interval Lower bound
-    double ci_upper;    // Confidence Interval Upper bound 
+    double discounted_price;    // Monte-Carlo result discounted back
+    double std_dev;             // Standard deviation of result
+    double ci_lower;            // Confidence Interval Lower bound
+    double ci_upper;            // Confidence Interval Upper bound 
 };
 
 /* Class for Heston Model simulations */
@@ -49,7 +49,7 @@ MCResult HestonMC::single_EU_call_Milstein(double K, double T, unsigned int step
     Kokkos::View<double**> Z_v("variance_uncorrelated_noise", paths, steps);
     
     Kokkos::MDRangePolicy<Kokkos::Rank<2>> noise_gen_policy({0,0}, {paths, steps});
-    Kokkos::parallel_for("Pre-computed_uncorrelated_noise", noise_gen_policy, 
+    Kokkos::parallel_for("Pre_compute_uncorrelated_noise", noise_gen_policy, 
         KOKKOS_CLASS_LAMBDA(unsigned int p, unsigned int t){
             Kokkos::Random_XorShift64_Pool<>::generator_type generator = rand_pool.get_state();
 
@@ -68,19 +68,50 @@ MCResult HestonMC::single_EU_call_Milstein(double K, double T, unsigned int step
 
     // Note simulation is serial in time but parallel in paths (minus the noise correlation, but that is precomputed above)
     for (unsigned int t = 1; t < steps; t++) {
-        Kokkos::parallel_for("Milstein_step", steps, 
+        Kokkos::parallel_for("Milstein_step", steps - 1, 
             KOKKOS_CLASS_LAMBDA(unsigned int p){
-                // TODO
+
+                // Computing the evolution of the price process
+                double S_curr = S(p);
+                S(p) += this->r * dt
+                    + Kokkos::sqrt(V(p) * dt) * S_curr * Z_s(p,t)
+                    + 0.25 * square(S_curr) * (square(Z_s(p,t)) - 1);
+
+                // Computing the evolution of the variance process
+                double V_curr = V(p);
+                V(p) += params.kappa*(params.theta - V_curr)
+                    + params.sigma*Kokkos::sqrt(V_curr * dt)*Z_v(p,t)
+                    + 0.25 * square(params.sigma) * (square(Z_v(p,t)) - 1);
         });
         Kokkos::fence();
     }
 
+    // Reduce mean payoff
+    double mean_payoff;
+    Kokkos::parallel_reduce("compute_sum_payoffs", paths, 
+        KOKKOS_CLASS_LAMBDA(unsigned int p, double& local_sum) {
+            local_sum += Kokkos::fmax(S(p) - K, 0.0);
+        }, mean_payoff);
+    Kokkos::fence();
+    mean_payoff /= paths;
 
-    // TODO
+    // Reduce variance and standard deviation of payoffs
+    double variance;
+    Kokkos::parallel_reduce("compute_sum_payoffs", paths, 
+        KOKKOS_CLASS_LAMBDA(unsigned int p, double& local_sum) {
+            local_sum += square(Kokkos::fmax(S(p) - K, 0.0) - mean_payoff);
+        }, variance);
+    Kokkos::fence();
+    variance /= paths;
+    double std_deviation =  Kokkos::sqrt(variance);
+
+    // Compute the result
+    double discount_factor = Kokkos::exp(-this->r * T);
+    
     MCResult result;
-    result.price = 0.0;
-    result.std_dev = 0.0;
-    result.ci_upper = 0.0;
-    result.ci_lower = 0.0;
+    result.discounted_price =  discount_factor * mean_payoff;
+    result.std_dev = std_deviation;
+    result.ci_upper = result.discounted_price + (1.96 * std_deviation * discount_factor);
+    result.ci_lower = result.discounted_price - (1.96 * std_deviation * discount_factor);
     return result;
 }
