@@ -21,6 +21,7 @@ class HestonMC
 
         /* Simulations */
         MCResult single_EU_call_Milstein(double K, double T, unsigned int steps, unsigned int paths, unsigned int seed);
+        MCResult single_EU_call_Milstein(double K, double T, unsigned int steps, unsigned int paths) {return single_EU_call_Milstein(K,T,steps,paths,12345);};
 
     private:
         /* MC Data fields */
@@ -67,27 +68,27 @@ MCResult HestonMC::single_EU_call_Milstein(double K, double T, unsigned int step
     Kokkos::fence();
 
     // Note simulation is serial in time but parallel in paths (minus the noise correlation, but that is precomputed above)
-    for (unsigned int t = 1; t < steps; t++) {
+    for (unsigned int t = 0; t < steps; t++) {
         Kokkos::parallel_for("Milstein_step", paths, 
             KOKKOS_CLASS_LAMBDA(unsigned int p){
 
                 // Computing the evolution of the variance process
                 double V_curr = Kokkos::fmax(V(p), 0.0);
-                V(p) += params.kappa*(params.theta - V_curr)
-                    + params.sigma*Kokkos::sqrt(V_curr * dt)*Z_v(p,t)
-                    + 0.25 * square(params.sigma) * (square(Z_v(p,t)) - 1);
+                double V_next = V_curr
+                            + params.kappa * (params.theta - V_curr) * dt
+                            + params.sigma * Kokkos::sqrt(V_curr * dt) * Z_v(p,t)
+                            + 0.25 * square(params.sigma) * (square(Z_v(p,t)) - 1.0) * dt;
+                V(p) = Kokkos::fmax(V_next, 0.0);
 
-                // Computing the evolution of the price process
+                // Computing the evolution of the price process (using current-time variance value, not updated one)
                 double S_curr = S(p);
-                S(p) += this->r * dt
-                    + Kokkos::sqrt(V(p) * dt) * S_curr * Z_s(p,t)
-                    + 0.25 * square(S_curr) * (square(Z_s(p,t)) - 1);
+                S(p) = S_curr * Kokkos::exp((r - 0.5*V_curr)*dt + Kokkos::sqrt(V_curr * dt) * Z_s(p,t));
         });
         Kokkos::fence();
     }
 
     // Reduce mean payoff
-    double mean_payoff;
+    double mean_payoff = 0.0;
     Kokkos::parallel_reduce("compute_sum_payoffs", paths, 
         KOKKOS_CLASS_LAMBDA(unsigned int p, double& local_sum) {
             local_sum += Kokkos::fmax(S(p) - K, 0.0);
@@ -96,13 +97,14 @@ MCResult HestonMC::single_EU_call_Milstein(double K, double T, unsigned int step
     mean_payoff /= paths;
 
     // Reduce variance and standard deviation of payoffs
-    double variance;
-    Kokkos::parallel_reduce("compute_sum_payoffs", paths, 
-        KOKKOS_CLASS_LAMBDA(unsigned int p, double& local_sum) {
-            local_sum += square(Kokkos::fmax(S(p) - K, 0.0) - mean_payoff);
+    double variance = 0.0;
+    Kokkos::parallel_reduce("compute_variance", paths,
+        KOKKOS_CLASS_LAMBDA(const unsigned int p, double& local_sum) {
+            double payoff_diff = Kokkos::fmax(S(p) - K, 0.0) - mean_payoff;
+            local_sum += square(payoff_diff);
         }, variance);
     Kokkos::fence();
-    variance /= paths;
+    variance /= static_cast<double>(paths - 1);
     double std_error = Kokkos::sqrt(variance) / Kokkos::sqrt(static_cast<double>(paths));
 
     // Compute the result

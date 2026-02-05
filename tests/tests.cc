@@ -23,14 +23,13 @@ int main(int argc, char** argv)
         double strike = 85.0;
         double maturity = 1.0;
         unsigned int steps = 252;
-        unsigned int paths = 1e4;
+        unsigned int paths = 3000;
         unsigned int seed = 12345;
         MCResult result = simulator.single_EU_call_Milstein(strike, maturity, steps, paths, seed);
 
 
         Kokkos::printf("%f\n", result.discounted_price);
-        Kokkos::printf("CI upper bound: %f\n", result.ci_upper);
-        Kokkos::printf("CI lower bound: %f\n", result.ci_lower);
+        Kokkos::printf("95%% Confidence Interval: [%.2f , %.2f]\n", result.ci_lower, result.ci_upper);
     }
     Kokkos::finalize();
 

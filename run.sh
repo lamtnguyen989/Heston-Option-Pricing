@@ -22,6 +22,7 @@ cmake   -B $BUILD_DIR \
 # Compile and run executable
 make -C $BUILD_DIR -j$(nproc)
 $BUILD_DIR/hestonFFT > run.log
+$BUILD_DIR/tests/heston_tests >> run.log
 
 # Result 
 cat run.log
