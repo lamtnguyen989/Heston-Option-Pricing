@@ -10,4 +10,4 @@ using exec_space = Kokkos::DefaultExecutionSpace;
 #define PI 3.141592653589793
 #define EPSILON 5e-15
 #define HUGE 1e6
-#define square(x) (x*x) // This is meant for SINGLE variable squaring macro. I.e. DO NOT USE `square(x-y) or any of such variants
+#define square(x) ((x)*(x))
