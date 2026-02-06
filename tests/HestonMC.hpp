@@ -21,6 +21,7 @@ class HestonMC
         /* Simulations */
         MCResult single_EU_call_Milstein(double K, double T, unsigned int steps, unsigned int paths, unsigned int seed);
         MCResult single_EU_call_Milstein(double K, double T, unsigned int steps, unsigned int paths) {return single_EU_call_Milstein(K,T,steps,paths,12345);};
+        Kokkos::View<MCResult*> vanilla_calls_Milstein(Kokkos::View<double*> strikes, double T, unsigned int steps, unsigned int paths, unsigned int seed);
 
     private:
         /* MC Data fields */
@@ -98,4 +99,51 @@ MCResult HestonMC::single_EU_call_Milstein(double K, double T, unsigned int step
     result.ci_lower = result.price - ci_width;
     
     return result;
+}
+
+Kokkos::View<MCResult*> HestonMC::vanilla_calls_Milstein(Kokkos::View<double*> strikes, double T, unsigned int steps, unsigned int paths, unsigned int seed)
+{
+    // Processing parameters
+    double dt = T / steps;
+
+    // Initialize states and processes
+    Kokkos::Random_XorShift64_Pool<> rand_pool(seed);
+    Kokkos::View<double*> S("price_process", paths);
+    Kokkos::View<double*> V("variance_process", paths);
+    Kokkos::parallel_for("init_processes", paths, 
+        KOKKOS_CLASS_LAMBDA(unsigned int p) {
+            S(p) = S_0;
+            V(p) = params.v0;
+        });
+
+    // Note simulation is serial in time but parallel in paths
+    for (unsigned int t = 0; t < steps; t++) {
+        Kokkos::parallel_for("Milstein_step", paths, 
+            KOKKOS_CLASS_LAMBDA(unsigned int p){
+
+                // Generating correlated random noise
+                Kokkos::Random_XorShift64_Pool<>::generator_type generator = rand_pool.get_state();
+                double Z_s = generator.normal(0.0, 1.0);
+                double Z_v = params.rho*Z_s + Kokkos::sqrt(1-square(params.rho)) * generator.normal(0.0, 1.0);
+                rand_pool.free_state(generator);
+
+                // Computing the evolution of the variance process
+                double V_curr = Kokkos::fmax(V(p), 0.0);
+                double V_next = V_curr
+                            + params.kappa * (params.theta - V_curr) * dt
+                            + params.sigma * Kokkos::sqrt(V_curr * dt) * Z_v
+                            + 0.25 * square(params.sigma) * (square(Z_v) - 1.0) * dt;
+                V(p) = Kokkos::fmax(V_next, 0.0);
+
+                // Computing the evolution of the price process (using current-time variance value, not updated one)
+                S(p) *= Kokkos::exp((r - 0.5*V_curr)*dt + Kokkos::sqrt(V_curr * dt) * Z_s);
+        });
+        Kokkos::fence();
+    }
+    
+    // Computing payoffs based on each strikes
+    unsigned int n_strikes = strikes.extent(0);
+    Kokkos::View<double*> mean_payoffs("payoffs", n_strikes);
+
+    // TODO
 }
