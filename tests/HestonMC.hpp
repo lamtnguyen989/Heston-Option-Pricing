@@ -145,5 +145,41 @@ Kokkos::View<MCResult*> HestonMC::vanilla_calls_Milstein(Kokkos::View<double*> s
     unsigned int n_strikes = strikes.extent(0);
     Kokkos::View<double*> mean_payoffs("payoffs", n_strikes);
 
-    // TODO
+    Kokkos::MDRangePolicy<Kokkos::Rank<2>> strikes_and_paths({0,0}, {n_strikes, paths});
+    Kokkos::parallel_for("computing_means_over_strikes_grid", strikes_and_paths,
+        KOKKOS_CLASS_LAMBDA(unsigned int k, unsigned int path) {
+            Kokkos::atomic_add(&mean_payoffs(k) , Kokkos::fmax(S(path) - strikes(k), 0.0) / static_cast<double>(paths));
+        });
+    Kokkos::fence();
+
+    // Compute the variances
+    Kokkos::View<double*> payoff_variances("variances", n_strikes);
+    Kokkos::parallel_for("computing_means_over_strikes_grid", strikes_and_paths,
+        KOKKOS_CLASS_LAMBDA(unsigned int k, unsigned int path) {
+            Kokkos::atomic_add(&payoff_variances(k), square(Kokkos::fmax(S(path) - strikes(k), 0.0) - mean_payoffs(k))/static_cast<double>(paths - 1));
+        });
+    Kokkos::fence();
+
+    // Reduce the standard error from the variances
+    Kokkos::View<double*> payoff_std_errors("payoff_std_err", n_strikes);
+    Kokkos::parallel_for("compute_std_errs", n_strikes, 
+        KOKKOS_CLASS_LAMBDA(unsigned int k) {
+            payoff_std_errors(k) = Kokkos::sqrt(payoff_variances(k)) / Kokkos::sqrt(paths);
+        });
+    Kokkos::fence();
+
+    // Compute the Monte Carlo results
+    double discount_factor = Kokkos::exp(-r * T);
+    Kokkos::View<MCResult*> results("discounted_MCResults", n_strikes);
+    Kokkos::parallel_for("computing_discount_result", n_strikes,
+        KOKKOS_CLASS_LAMBDA(unsigned int k){ 
+            double ci_width = 1.96 * payoff_std_errors(k) * discount_factor;
+            double option_price = discount_factor * mean_payoffs(k);
+
+            results(k).price = option_price;
+            results(k).ci_upper = option_price + ci_width;
+            results(k).ci_lower = option_price - ci_width;
+        });
+ 
+    return results;
 }

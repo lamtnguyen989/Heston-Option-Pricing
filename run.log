@@ -41,5 +41,46 @@ Strike 		 Call Price
 125.00 		 1.07
 
 Strike: 85.00, Maturity: 1.00
-19.755948
-95% Confidence Interval: [19.19 , 20.33]
+19.676758
+95% Confidence Interval: [19.50 , 19.86]
+
+Strike: 80.00, Maturity: 1.00
+23.803071
+95% Confidence Interval: [23.61 , 23.99]
+
+Strike: 85.00, Maturity: 1.00
+19.676758
+95% Confidence Interval: [19.50 , 19.86]
+
+Strike: 90.00, Maturity: 1.00
+15.844485
+95% Confidence Interval: [15.68 , 16.01]
+
+Strike: 95.00, Maturity: 1.00
+12.366460
+95% Confidence Interval: [12.22 , 12.52]
+
+Strike: 100.00, Maturity: 1.00
+9.304106
+95% Confidence Interval: [9.17 , 9.44]
+
+Strike: 105.00, Maturity: 1.00
+6.720597
+95% Confidence Interval: [6.61 , 6.83]
+
+Strike: 110.00, Maturity: 1.00
+4.630687
+95% Confidence Interval: [4.54 , 4.73]
+
+Strike: 115.00, Maturity: 1.00
+3.030869
+95% Confidence Interval: [2.95 , 3.11]
+
+Strike: 120.00, Maturity: 1.00
+1.875457
+95% Confidence Interval: [1.82 , 1.93]
+
+Strike: 125.00, Maturity: 1.00
+1.097402
+95% Confidence Interval: [1.05 , 1.14]
+
