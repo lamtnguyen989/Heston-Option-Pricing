@@ -32,6 +32,29 @@ int main(int argc, char** argv)
         Kokkos::printf("Strike: %.2f, Maturity: %.2f\n", strike, maturity);
         Kokkos::printf("%f\n", result.price);
         Kokkos::printf("95%% Confidence Interval: [%.2f , %.2f]\n", result.ci_lower, result.ci_upper);
+        Kokkos::printf("\n");
+
+        ////////
+        // Computing the vectorized MC simulations
+        unsigned int n_strikes = 10;
+        Kokkos::View<double*> strikes("strikes", n_strikes);
+        Kokkos::parallel_for("fill_strikes", n_strikes,
+            KOKKOS_LAMBDA(unsigned int k){
+                strikes(k) = 80 + k*5.0;
+        });
+        Kokkos::fence();
+        Kokkos::View<MCResult*> results = simulator.vanilla_calls_Milstein(strikes, maturity, steps, paths, 12345);
+
+        Kokkos::View<double*, Kokkos::HostSpace> h_strikes = Kokkos::create_mirror_view(strikes);        
+        Kokkos::View<MCResult*, Kokkos::HostSpace> h_results = Kokkos::create_mirror_view(results);
+        Kokkos::deep_copy(h_results, results);
+        Kokkos::deep_copy(h_strikes, strikes);
+        for (unsigned int k = 0; k < h_results.extent(0); k++) {
+            Kokkos::printf("Strike: %.2f, Maturity: %.2f\n", h_strikes(k), maturity);
+            Kokkos::printf("%f\n", h_results(k).price);
+            Kokkos::printf("95%% Confidence Interval: [%.2f , %.2f]\n", h_results(k).ci_lower, h_results(k).ci_upper);
+            Kokkos::printf("\n");
+        }
     }
     Kokkos::finalize();
 
