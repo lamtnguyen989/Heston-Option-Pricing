@@ -24,11 +24,11 @@ class Heston_FFT
         void update_FFT_config(FFT_config conf) {fft_config = conf;}
 
         /* Option Pricing functions */
-        Kokkos::View<double**> heston_call_prices(HestonParameters p, bool verbose) const;
+        Kokkos::View<double**> heston_call_prices(HestonParameters p) const;
         Kokkos::View<double*> heston_call_prices_at_maturity(double t, bool verbose) const;
-        Kokkos::View<double**> heston_call_prices(bool verbose) {return heston_call_prices(params, verbose);};
-        Kokkos::View<double**> heston_put_prices(HestonParameters P, bool verbose) const;
-        Kokkos::View<double**> heston_put_prices(bool verbose) {return heston_put_prices(params, verbose);};
+        Kokkos::View<double**> heston_call_prices() {return heston_call_prices(params);};
+        Kokkos::View<double**> heston_put_prices(HestonParameters P) const;
+        Kokkos::View<double**> heston_put_prices() {return heston_put_prices(params);};
 
         /* Calibrating parameters */
         HestonParameters diff_EV_iv_surf_calibration(Kokkos::View<double**> iv_surface, Kokkos::View<double*> strikes, Kokkos::View<double*> maturities,
@@ -161,7 +161,7 @@ Kokkos::View<double*> Heston_FFT::heston_call_prices_at_maturity(double t, bool 
     return prices;
 }
 
-Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool verbose=false) const
+Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p) const
 {
     // Initialize variables and surface
     unsigned int n_strikes = strikes.extent(0);
@@ -216,35 +216,6 @@ Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool v
             else
                 pricing_surface(k, t) = 0.0;
         });
-    
-    if (verbose) {
-        // Copy data back to host since parallelized prints are unreliable
-        Kokkos::View<double**, Kokkos::LayoutLeft, Kokkos::HostSpace> h_prices = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), pricing_surface);
-        Kokkos::View<double*, Kokkos::HostSpace> h_strikes = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), strikes);
-        Kokkos::View<double*, Kokkos::HostSpace> h_maturities = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), maturities);
-
-        // Print Maturity Headers
-        Kokkos::printf("Call price grid\n");
-        Kokkos::printf("%18s |", "Strike / Maturity");
-        for (unsigned int t = 0; t < n_maturities; t++) {
-            Kokkos::printf(" %10.2f", h_maturities(t));
-        }
-        Kokkos::printf("\n-------------------|");
-        for (unsigned int t = 0; t < n_maturities; t++) {
-            Kokkos::printf("-----------");
-        }
-        Kokkos::printf("\n");
-
-        // Print Strike Rows
-        for (unsigned int k = 0; k < n_strikes; k++) {
-            Kokkos::printf("%18.2f |", h_strikes(k)); 
-            for (unsigned int t = 0; t < n_maturities; t++) {
-                Kokkos::printf(" %10.4f", h_prices(k, t));
-            }
-            Kokkos::printf("\n");
-        }
-        Kokkos::printf("\n");
-    }
 
     return pricing_surface;
 }
@@ -252,10 +223,10 @@ Kokkos::View<double**> Heston_FFT::heston_call_prices(HestonParameters p, bool v
 /***
     Put prices via parity
 ***/
-Kokkos::View<double**> Heston_FFT::heston_put_prices(HestonParameters P, bool verbose) const
+Kokkos::View<double**> Heston_FFT::heston_put_prices(HestonParameters P) const
 {
     // Computing the call price surface 
-    Kokkos::View<double**> pricing_surface = this->heston_call_prices(P, false);
+    Kokkos::View<double**> pricing_surface = this->heston_call_prices(P);
 
     // Apply the put-call parity
     unsigned int n_strikes = strikes.extent(0);
@@ -265,35 +236,6 @@ Kokkos::View<double**> Heston_FFT::heston_put_prices(HestonParameters P, bool ve
         KOKKOS_CLASS_LAMBDA(unsigned int k, unsigned int t) {
             pricing_surface(k,t) = pricing_surface(k,t) - S + strikes(k) + Kokkos::exp(-r*t);            
         });
-
-    if (verbose) {
-        // Copy data back to host since parallelized prints are unreliable
-        Kokkos::View<double**, Kokkos::LayoutLeft, Kokkos::HostSpace> h_prices = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), pricing_surface);
-        Kokkos::View<double*, Kokkos::HostSpace> h_strikes = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), strikes);
-        Kokkos::View<double*, Kokkos::HostSpace> h_maturities = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), maturities);
-
-        // Print Maturity Headers
-        Kokkos::printf("Put price grid\n");
-        Kokkos::printf("%18s |", "Strike / Maturity");
-        for (unsigned int t = 0; t < n_maturities; t++) {
-            Kokkos::printf(" %10.2f", h_maturities(t));
-        }
-        Kokkos::printf("\n-------------------|");
-        for (unsigned int t = 0; t < n_maturities; t++) {
-            Kokkos::printf("-----------");
-        }
-        Kokkos::printf("\n");
-
-        // Print Strike Rows
-        for (unsigned int k = 0; k < n_strikes; k++) {
-            Kokkos::printf("%18.2f |", h_strikes(k));
-            for (unsigned int t = 0; t < n_maturities; t++) {
-                Kokkos::printf(" %10.4f", h_prices(k, t));
-            }
-            Kokkos::printf("\n");
-        }
-        Kokkos::printf("\n");
-    }
         
     return pricing_surface;
 }
@@ -343,7 +285,7 @@ HestonParameters Heston_FFT::diff_EV_iv_surf_calibration(Kokkos::View<double**> 
     Kokkos::MDRangePolicy<Kokkos::Rank<2>> surface_policy({0,0}, {n_strikes, n_maturities});
     for (unsigned int p = 0; p < population_size; p++) {
         double pop_iv_loss = 0;
-        Kokkos::View<double**> call_prices_surface_p = this->heston_call_prices(population(p), /*verbose=*/false);
+        Kokkos::View<double**> call_prices_surface_p = this->heston_call_prices(population(p));
         Kokkos::View<double**> population_iv_surface_p = Routines::implied_volatility_surface(call_prices_surface_p, this->S, this->strikes, this->r, this->maturities);
         Kokkos::parallel_reduce("init_pop_loss_calc", surface_policy, 
             KOKKOS_CLASS_LAMBDA(unsigned int k, unsigned int t, double& local_iv_loss) {
@@ -417,7 +359,7 @@ HestonParameters Heston_FFT::diff_EV_iv_surf_calibration(Kokkos::View<double**> 
         // Evaluate the mutations
         for (unsigned int m = 0; m < population_size; m++) {
             double mut_iv_loss = 0.0;
-            Kokkos::View<double**> call_prices_surface_m = this->heston_call_prices(mutations(m), /*verbose=*/false);
+            Kokkos::View<double**> call_prices_surface_m = this->heston_call_prices(mutations(m));
             Kokkos::View<double**> population_iv_surface_m = Routines::implied_volatility_surface(call_prices_surface_m, this->S, this->strikes, this->r, this->maturities);
             Kokkos::parallel_reduce("init_pop_loss_calc", surface_policy, 
                 KOKKOS_CLASS_LAMBDA(unsigned int k, unsigned int t, double& local_iv_loss) {

@@ -41,46 +41,46 @@ Strike 		 Call Price
 125.00 		 1.07
 
 Strike: 85.00, Maturity: 1.00
-19.676758
-95% Confidence Interval: [19.50 , 19.86]
+19.755948
+95% Confidence Interval: [19.19 , 20.33]
 
 Strike: 80.00, Maturity: 1.00
-23.803071
-95% Confidence Interval: [23.61 , 23.99]
+23.880450
+95% Confidence Interval: [23.28 , 24.48]
 
 Strike: 85.00, Maturity: 1.00
-19.676758
-95% Confidence Interval: [19.50 , 19.86]
+19.755948
+95% Confidence Interval: [19.19 , 20.33]
 
 Strike: 90.00, Maturity: 1.00
-15.844485
-95% Confidence Interval: [15.68 , 16.01]
+15.922718
+95% Confidence Interval: [15.39 , 16.45]
 
 Strike: 95.00, Maturity: 1.00
-12.366460
-95% Confidence Interval: [12.22 , 12.52]
+12.429329
+95% Confidence Interval: [11.95 , 12.91]
 
 Strike: 100.00, Maturity: 1.00
-9.304106
-95% Confidence Interval: [9.17 , 9.44]
+9.348549
+95% Confidence Interval: [8.92 , 9.77]
 
 Strike: 105.00, Maturity: 1.00
-6.720597
-95% Confidence Interval: [6.61 , 6.83]
+6.770792
+95% Confidence Interval: [6.40 , 7.14]
 
 Strike: 110.00, Maturity: 1.00
-4.630687
-95% Confidence Interval: [4.54 , 4.73]
+4.693646
+95% Confidence Interval: [4.39 , 5.00]
 
 Strike: 115.00, Maturity: 1.00
-3.030869
-95% Confidence Interval: [2.95 , 3.11]
+3.084958
+95% Confidence Interval: [2.84 , 3.33]
 
 Strike: 120.00, Maturity: 1.00
-1.875457
-95% Confidence Interval: [1.82 , 1.93]
+1.956077
+95% Confidence Interval: [1.76 , 2.15]
 
 Strike: 125.00, Maturity: 1.00
-1.097402
-95% Confidence Interval: [1.05 , 1.14]
+1.187559
+95% Confidence Interval: [1.04 , 1.34]
 
