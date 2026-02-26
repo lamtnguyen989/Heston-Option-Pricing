@@ -1,11 +1,6 @@
 #include "Heston-FFT.hpp"
 #include <fstream>  // For reading data
-#include <string>
 
-void read_iv_surface_from_file(std::string file_path, Kokkos::View<double**> dest)
-{
-
-}
 
 int main (int argc, char* argv[])
 {
@@ -51,8 +46,13 @@ int main (int argc, char* argv[])
 
         // Pricing surface
         bool verbose = true;
-        solver.heston_call_prices(verbose);
-        solver.heston_put_prices(verbose);
+        Kokkos::View<double**> call_surface =  solver.heston_call_prices();
+        Kokkos::View<double**> put_surface = solver.heston_put_prices();
+
+        if (verbose) {
+            print_surface(call_surface, strikes, maturities, CALL);
+            print_surface(put_surface, strikes, maturities, PUT);
+        }
 
         // Pricing at t=1.0
         solver.heston_call_prices_at_maturity(1.0, verbose);

@@ -3,6 +3,7 @@
 # Loading libraries with Spack
 spack load cmake kokkos
 BUILD_DIR=build
+LOGS_DIR=logs
 
 # Make sure FFT working (since Spack supported config is horrible at the time of writing this script)
 mkdir -p tpls
@@ -20,10 +21,11 @@ cmake   -B $BUILD_DIR \
         -DKokkos_ENABLE_CUDA_RELOCATABLE_DEVICE_CODE=ON \
 
 # Compile and run executable
+mkdir -p $LOGS_DIR
+
 make -C $BUILD_DIR -j$(nproc)
-$BUILD_DIR/hestonFFT > run.log
-$BUILD_DIR/tests/heston_tests >> run.log
+$BUILD_DIR/hestonFFT > $LOGS_DIR/run.log
+$BUILD_DIR/tests/heston_tests >> $LOGS_DIR/run.log
 
 # Result 
-cat run.log
-
+cat $LOGS_DIR/run.log
