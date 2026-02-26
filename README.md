@@ -10,10 +10,3 @@ These are mainly exploratory methods which are somewhat feasible and reasonably 
 1. Need to install [Spack](https://spack.io/).
 2. Install Kokkos via Spack.
 3. Execute `run.sh` file.
-
-## TODO:
-- [] Add proper Spack enviroment config.
-- [] Add proper testing framework based on the 95% Confidence Interval of the SDE formulation (discounted back to present) for the model implementation.
-- [] Find how to import/feed options data onto the model for computing and testing the implied volatility calculations with the logic that is laid-out in `Routines.hpp`.
-- [] Again, either import or derived implied volatility surface data to validate the calibration algorithm.
-- [] Extend more capabilities after calibration to more practical stuff (i.e. Quoting and Hedging dynamics).
